@@ -3,10 +3,10 @@ import warnings
 import grpc
 import pyarrow.parquet as pq
 import pytest
+from conftest import make_simple
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 
-from conftest import make_simple
 from qdrant_to_parquet import cli
 from qdrant_to_parquet.cli import main
 from qdrant_to_parquet.exporter import ClientConfig
@@ -19,7 +19,11 @@ def collection(tmp_path, monkeypatch):
     client = QdrantClient(path=path)
     name = make_simple(client)
     client.close()
-    monkeypatch.setattr(ClientConfig, "make", lambda self, check_compatibility=True: QdrantClient(path=path))
+    monkeypatch.setattr(
+        ClientConfig,
+        "make",
+        lambda self, check_compatibility=True: QdrantClient(path=path),
+    )
     return name
 
 
@@ -69,22 +73,41 @@ class FakeRpcError(grpc.RpcError):
 @pytest.mark.parametrize(
     ("error", "args", "message"),
     [
-        (UnexpectedResponse(404, "Not Found", b"", headers=None), [],
-         "error: Qdrant returned HTTP 404 Not Found (empty response. Is --url correct?)"),
-        (FakeRpcError(), [], "error: Qdrant returned gRPC UNAVAILABLE: failed to connect to all addresses "
-                             "(is the gRPC port 6334 reachable? --rest uses the REST API instead)"),
+        (
+            UnexpectedResponse(404, "Not Found", b"", headers=None),
+            [],
+            "error: Qdrant returned HTTP 404 Not Found (empty response. Is --url correct?)",
+        ),
+        (
+            FakeRpcError(),
+            [],
+            "error: Qdrant returned gRPC UNAVAILABLE: failed to connect to all addresses "
+            "(is the gRPC port 6334 reachable? --rest uses the REST API instead)",
+        ),
         (FakeRpcError(), ["--grpc-port", "7334"], "(is the gRPC port 7334 reachable?"),
-        (ConnectionError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"), ["--rest"],
-         "(to trust a private certificate authority, set SSL_CERT_FILE to its certificate file)"),
-        (ConnectionError("CERTIFICATE_VERIFY_FAILED"), [],
-         "set SSL_CERT_FILE and GRPC_DEFAULT_SSL_ROOTS_FILE_PATH to its certificate file)"),
+        (
+            ConnectionError(
+                "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
+            ),
+            ["--rest"],
+            "(to trust a private certificate authority, set SSL_CERT_FILE to its certificate file)",
+        ),
+        (
+            ConnectionError("CERTIFICATE_VERIFY_FAILED"),
+            [],
+            "set SSL_CERT_FILE and GRPC_DEFAULT_SSL_ROOTS_FILE_PATH to its certificate file)",
+        ),
     ],
 )
 def test_error_hints(tmp_path, monkeypatch, capsys, error, args, message):
     def failing_export(*a, **kw):
         raise error
 
-    monkeypatch.setattr(ClientConfig, "make", lambda self, check_compatibility=True: QdrantClient(":memory:"))
+    monkeypatch.setattr(
+        ClientConfig,
+        "make",
+        lambda self, check_compatibility=True: QdrantClient(":memory:"),
+    )
     monkeypatch.setattr(cli, "export_collection", failing_export)
     assert main(["c", str(tmp_path / "out.parquet"), "--retries", "0", *args]) == 1
     assert message in capsys.readouterr().err

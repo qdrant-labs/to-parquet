@@ -1,5 +1,3 @@
-"""Qdrant points to Arrow tables and Parquet row groups."""
-
 from __future__ import annotations
 
 import json
@@ -19,7 +17,9 @@ COMPRESSION = "zstd"
 ROW_GROUP_BYTES = 32 * 2**20
 MAX_ROW_GROUP_ROWS = 10_000
 
-SPARSE_TYPE = pa.struct([("indices", pa.list_(pa.uint32())), ("values", pa.list_(pa.float32()))])
+SPARSE_TYPE = pa.struct(
+    [("indices", pa.list_(pa.uint32())), ("values", pa.list_(pa.float32()))]
+)
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,12 @@ class VectorSpec:
         return pa.list_(pa.float32())
 
     def describe(self) -> dict[str, Any]:
-        return {"name": self.name, "kind": self.kind, "size": self.size, "distance": self.distance}
+        return {
+            "name": self.name,
+            "kind": self.kind,
+            "size": self.size,
+            "distance": self.distance,
+        }
 
 
 def vector_specs(params: models.CollectionParams) -> list[VectorSpec]:
@@ -55,14 +60,24 @@ def vector_specs(params: models.CollectionParams) -> list[VectorSpec]:
     if isinstance(params.vectors, models.VectorParams):
         specs.append(dense("", "vector", params.vectors))
     elif isinstance(params.vectors, dict):
-        specs += [dense(name, f"vector_{name}", params.vectors[name]) for name in sorted(params.vectors)]
-    specs += [VectorSpec(name, f"vector_{name}", "sparse") for name in sorted(params.sparse_vectors or {})]
+        specs += [
+            dense(name, f"vector_{name}", params.vectors[name])
+            for name in sorted(params.vectors)
+        ]
+    specs += [
+        VectorSpec(name, f"vector_{name}", "sparse")
+        for name in sorted(params.sparse_vectors or {})
+    ]
     return specs
 
 
 def _vector_value(record: models.Record, spec: VectorSpec) -> Any:
     vector = record.vector
-    value = vector.get(spec.name) if isinstance(vector, dict) else (vector if spec.name == "" else None)
+    value = (
+        vector.get(spec.name)
+        if isinstance(vector, dict)
+        else (vector if spec.name == "" else None)
+    )
     if spec.kind == "sparse" and value is not None:
         return {"indices": value.indices, "values": value.values}
     return value
@@ -79,10 +94,20 @@ class RecordConverter:
 
     def convert(self, records: Sequence[models.Record]) -> pa.Table:
         columns = [pa.array([str(r.id) for r in records], pa.string())]
-        columns += [pa.array([_vector_value(r, v) for r in records], v.arrow_type) for v in self.vectors]
+        columns += [
+            pa.array([_vector_value(r, v) for r in records], v.arrow_type)
+            for v in self.vectors
+        ]
         # Sorted keys: over gRPC, payloads arrive as protobuf maps in no stable order.
-        payloads = [json.dumps(r.payload or {}, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-                    for r in records]
+        payloads = [
+            json.dumps(
+                r.payload or {},
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            for r in records
+        ]
         columns.append(pa.array(payloads, pa.string()))
         return pa.Table.from_arrays(columns, schema=self.schema)
 
@@ -106,12 +131,18 @@ class RowGroupWriter:
         if not self.pending:
             return
         # Contiguous arrays: the writer splits pages by input batch, which would make the bytes depend on chunking.
-        table = pa.concat_tables(self.pending).combine_chunks().replace_schema_metadata(self.writer.schema.metadata)
+        table = (
+            pa.concat_tables(self.pending)
+            .combine_chunks()
+            .replace_schema_metadata(self.writer.schema.metadata)
+        )
         full = table.num_rows if final else table.num_rows - table.num_rows % self.rows
         if full:
             self.writer.write_table(table.slice(0, full), row_group_size=self.rows)
         rest = table.slice(full)
-        self.pending, self.pending_rows = ([rest], rest.num_rows) if rest.num_rows else ([], 0)
+        self.pending, self.pending_rows = (
+            ([rest], rest.num_rows) if rest.num_rows else ([], 0)
+        )
 
 
 def row_group_rows(files: Sequence[Path], sample_rows: int = 1_000) -> int:

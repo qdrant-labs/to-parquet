@@ -1,6 +1,6 @@
 # ⛟ Export → Parquet
 
-CLI tool to export a [Qdrant](https://qdrant.tech) collection to a Parquet file.
+CLI tool to export a Qdrant collection to a Parquet file.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/export-dark.gif">
@@ -11,22 +11,15 @@ CLI tool to export a [Qdrant](https://qdrant.tech) collection to a Parquet file.
 - Parallel: ranges of points are exported by worker processes.
 - Resumable: an interrupted export continues where it stopped.
 
-## Install
+## Usage
 
 Requires [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```sh
-uvx --from "git+https://github.com/qdrant-labs/to-parquet" \
-    qdrant-to-parquet my_collection out.parquet
-```
-
-## Usage
-
-```sh
-qdrant-to-parquet my_collection out.parquet            # localhost
+uvx qdrant-to-parquet my_collection out.parquet            # localhost
 
 export QDRANT_URL=https://xyz.cloud.qdrant.io QDRANT_API_KEY=...
-qdrant-to-parquet my_collection out.parquet            # Qdrant Cloud
+uvx qdrant-to-parquet my_collection out.parquet            # Qdrant Cloud
 ```
 
 | Option          | Default                                  |                                                      |
@@ -69,7 +62,9 @@ from qdrant_to_parquet.exporter import ClientConfig, export_collection
 
 if __name__ == "__main__":
     config = ClientConfig(url="http://localhost:6333")
-    export_collection(config.make(), "my_collection", "out.parquet", workers=4, client_config=config)
+    export_collection(
+        config.make(), "my_collection", "out.parquet", workers=4, client_config=config
+    )
 ```
 
 ## Development

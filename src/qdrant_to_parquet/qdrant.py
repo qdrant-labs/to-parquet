@@ -1,5 +1,3 @@
-"""Talking to Qdrant: connections, errors, retries and scrolling."""
-
 from __future__ import annotations
 
 import logging
@@ -84,7 +82,9 @@ def describe_error(exc: BaseException, limit: int = 500) -> str:
 
 def _is_retryable(exc: Exception) -> bool:
     if isinstance(exc, UnexpectedResponse):
-        return exc.status_code is None or exc.status_code >= 500 or exc.status_code == 429
+        return (
+            exc.status_code is None or exc.status_code >= 500 or exc.status_code == 429
+        )
     if isinstance(exc, grpc.RpcError):
         return grpc_status(exc)[0] in RETRYABLE_GRPC_CODES
     return isinstance(exc, (ResponseHandlingException, ConnectionError, TimeoutError))
@@ -105,11 +105,18 @@ def call_with_retries(fn: Callable[[], T], *, retries: int, what: str) -> T:
                 ) from exc
             rate_limited_for += delay
             if log.isEnabledFor(logging.WARNING):
-                log.warning("%s rate limited (%s). Waiting %ss", what, describe_error(exc), delay)
+                log.warning(
+                    "%s rate limited (%s). Waiting %ss",
+                    what,
+                    describe_error(exc),
+                    delay,
+                )
             time.sleep(delay)
         except Exception as exc:
             if attempt >= retries or not _is_retryable(exc):
-                code, details = grpc_status(exc) if isinstance(exc, grpc.RpcError) else (None, "")
+                code, details = (
+                    grpc_status(exc) if isinstance(exc, grpc.RpcError) else (None, "")
+                )
                 if code == grpc.StatusCode.INTERNAL and "deserializ" in details:
                     raise ExportError(
                         "the gRPC client could not decode a page of points (payloads nested more than "
@@ -120,20 +127,40 @@ def call_with_retries(fn: Callable[[], T], *, retries: int, what: str) -> T:
             attempt += 1
             if log.isEnabledFor(logging.WARNING):
                 log.warning(
-                    "%s failed (%s). Retrying in %ss (%d/%d)", what, describe_error(exc), delay, attempt, retries
+                    "%s failed (%s). Retrying in %ss (%d/%d)",
+                    what,
+                    describe_error(exc),
+                    delay,
+                    attempt,
+                    retries,
                 )
             time.sleep(delay)
 
 
-def get_collection(client: QdrantClient, collection: str, retries: int) -> models.CollectionInfo:
+def get_collection(
+    client: QdrantClient, collection: str, retries: int
+) -> models.CollectionInfo:
     try:
-        return call_with_retries(lambda: client.get_collection(collection), retries=retries, what="get collection")
+        return call_with_retries(
+            lambda: client.get_collection(collection),
+            retries=retries,
+            what="get collection",
+        )
     except (UnexpectedResponse, grpc.RpcError, ValueError) as exc:
         not_found = (
             # A 404 without "collection" in it means a wrong URL.
-            (isinstance(exc, UnexpectedResponse) and exc.status_code == 404 and b"ollection" in (exc.content or b""))
-            or (isinstance(exc, grpc.RpcError) and grpc_status(exc)[0] == grpc.StatusCode.NOT_FOUND)
-            or (isinstance(exc, ValueError) and "not found" in str(exc))  # qdrant-client local mode
+            (
+                isinstance(exc, UnexpectedResponse)
+                and exc.status_code == 404
+                and b"ollection" in (exc.content or b"")
+            )
+            or (
+                isinstance(exc, grpc.RpcError)
+                and grpc_status(exc)[0] == grpc.StatusCode.NOT_FOUND
+            )
+            or (
+                isinstance(exc, ValueError) and "not found" in str(exc)
+            )  # qdrant-client local mode
         )
         if not_found:
             raise ExportError(f"collection {collection!r} does not exist") from None
@@ -141,7 +168,9 @@ def get_collection(client: QdrantClient, collection: str, retries: int) -> model
 
 
 def count_points(client: QdrantClient, collection: str, retries: int) -> int:
-    return call_with_retries(lambda: client.count(collection, exact=True), retries=retries, what="count").count
+    return call_with_retries(
+        lambda: client.count(collection, exact=True), retries=retries, what="count"
+    ).count
 
 
 def scroll_batches(
@@ -159,14 +188,20 @@ def scroll_batches(
     while True:
         records, next_offset = call_with_retries(
             lambda offset=offset: client.scroll(
-                collection_name=collection, limit=batch_size, offset=offset, with_payload=True, with_vectors=True
+                collection_name=collection,
+                limit=batch_size,
+                offset=offset,
+                with_payload=True,
+                with_vectors=True,
             ),
             retries=retries,
             what="scroll",
         )
         if end_key is not None:
             kept = [r for r in records if point_id_key(r.id) < end_key]
-            if len(kept) < len(records) or (next_offset is not None and point_id_key(next_offset) >= end_key):
+            if len(kept) < len(records) or (
+                next_offset is not None and point_id_key(next_offset) >= end_key
+            ):
                 next_offset = None
             records = kept
         if not records:

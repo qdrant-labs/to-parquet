@@ -6,10 +6,10 @@ import time
 
 import pyarrow.parquet as pq
 import pytest
+from conftest import SERVER_URL, make_simple, unique
 from qdrant_client import models
 
 import qdrant_to_parquet.ranges as ranges
-from conftest import SERVER_URL, make_simple, unique
 from qdrant_to_parquet.exporter import ClientConfig, ExportError, export_collection
 
 
@@ -34,10 +34,14 @@ def crash_after(client, monkeypatch, pages):
 
 @pytest.fixture
 def small_chunks(monkeypatch):
-    monkeypatch.setattr(ranges, "CHUNK_ROWS", 5)
+    monkeypatch.setattr(
+        ranges, "CHUNK_SECONDS", 0
+    )  # progress is saved after every page
 
 
-def test_resume_continues_from_the_saved_offset(client, tmp_path, monkeypatch, small_chunks):
+def test_resume_continues_from_the_saved_offset(
+    client, tmp_path, monkeypatch, small_chunks
+):
     name = make_simple(client)
     expected, out = tmp_path / "expected.parquet", tmp_path / "out.parquet"
     export_collection(client, name, expected, progress=False)
@@ -47,16 +51,33 @@ def test_resume_continues_from_the_saved_offset(client, tmp_path, monkeypatch, s
         with pytest.raises(Crash):
             export_collection(client, name, out, batch_size=4, progress=False)
     assert not out.exists()
-    # Pages of 4 points, committed in chunks of at least 5: pages 1-2 were saved, page 3 was lost.
-    assert ranges.saved_points(out) == 8
+    assert ranges.saved_points(out) == 12  # 3 pages of 4 points
 
     offsets = crash_after(client, monkeypatch, pages=100)
     stats = export_collection(client, name, out, batch_size=4, progress=False)
 
-    assert offsets[0] == 9  # continued where the saved progress ended, not from the start
-    assert stats.resumed_points == 8 and stats.points == 25
+    assert (
+        offsets[0] == 13
+    )  # continued where the saved progress ended, not from the start
+    assert stats.resumed_points == 12 and stats.points == 25
     assert pq.read_table(out).equals(pq.read_table(expected), check_metadata=True)
     assert not ranges.state_dir(out).exists()
+
+
+@pytest.mark.parametrize(
+    ("seconds", "size", "saved"),
+    [(0, 2**40, 12), (10**9, 1, 12), (10**9, 2**40, 0)],
+    ids=["after some seconds", "at a size", "neither"],
+)
+def test_when_progress_is_saved(client, tmp_path, monkeypatch, seconds, size, saved):
+    monkeypatch.setattr(ranges, "CHUNK_SECONDS", seconds)
+    monkeypatch.setattr(ranges, "CHUNK_BYTES", size)
+    name = make_simple(client)
+    out = tmp_path / "out.parquet"
+    crash_after(client, monkeypatch, pages=3)
+    with pytest.raises(Crash):
+        export_collection(client, name, out, batch_size=4, progress=False)
+    assert (ranges.saved_points(out) or 0) == saved
 
 
 def test_stray_chunks_are_ignored(client, tmp_path, monkeypatch, small_chunks):
@@ -77,7 +98,9 @@ def test_stray_chunks_are_ignored(client, tmp_path, monkeypatch, small_chunks):
     assert stats.points == len(ids) == len(set(ids)) == 25
 
 
-def test_inconsistent_saved_progress_is_detected(client, tmp_path, monkeypatch, small_chunks):
+def test_inconsistent_saved_progress_is_detected(
+    client, tmp_path, monkeypatch, small_chunks
+):
     name = make_simple(client)
     out = tmp_path / "out.parquet"
     with monkeypatch.context() as m:
@@ -86,7 +109,9 @@ def test_inconsistent_saved_progress_is_detected(client, tmp_path, monkeypatch, 
             export_collection(client, name, out, batch_size=5, progress=False)
     # A saved chunk is replaced by a copy of another one: duplicates and a gap, same number of rows.
     directory = ranges.state_dir(out)
-    (directory / "range-00000-00001.parquet").write_bytes((directory / "range-00000-00000.parquet").read_bytes())
+    (directory / "range-00000-00001.parquet").write_bytes(
+        (directory / "range-00000-00000.parquet").read_bytes()
+    )
 
     with pytest.raises(ExportError, match="point 1 is duplicated or out of order"):
         export_collection(client, name, out, progress=False)
@@ -102,11 +127,15 @@ def test_restart_discards_saved_progress(client, tmp_path, monkeypatch, small_ch
             export_collection(client, name, out, batch_size=5, progress=False)
 
     offsets = crash_after(client, monkeypatch, pages=100)
-    stats = export_collection(client, name, out, batch_size=5, progress=False, restart=True)
+    stats = export_collection(
+        client, name, out, batch_size=5, progress=False, restart=True
+    )
     assert offsets[0] is None and stats.resumed_points == 0 and stats.points == 25
 
 
-def test_saved_progress_of_another_collection(client, tmp_path, monkeypatch, small_chunks):
+def test_saved_progress_of_another_collection(
+    client, tmp_path, monkeypatch, small_chunks
+):
     first, second = make_simple(client), make_simple(client)
     out = tmp_path / "out.parquet"
     with monkeypatch.context() as m:
@@ -116,7 +145,10 @@ def test_saved_progress_of_another_collection(client, tmp_path, monkeypatch, sma
 
     with pytest.raises(ExportError, match="interrupted export of another collection"):
         export_collection(client, second, out, progress=False)
-    assert export_collection(client, second, out, progress=False, restart=True).points == 25
+    assert (
+        export_collection(client, second, out, progress=False, restart=True).points
+        == 25
+    )
 
 
 def test_one_export_per_output_at_a_time(client, tmp_path):
@@ -130,7 +162,9 @@ def test_one_export_per_output_at_a_time(client, tmp_path):
         with pytest.raises(ExportError, match="another export to .* is running"):
             export_collection(client, name, out, progress=False)
         with pytest.raises(ExportError, match="another export"):
-            export_collection(client, name, out, progress=False, restart=True)  # does not delete anything
+            export_collection(
+                client, name, out, progress=False, restart=True
+            )  # does not delete anything
     assert export_collection(client, name, out, progress=False).points == 25
 
 
@@ -138,9 +172,15 @@ def test_count_mismatch_is_an_error(client, tmp_path, monkeypatch, caplog):
     name = make_simple(client)
     out = tmp_path / "out.parquet"
     original = client.count
-    monkeypatch.setattr(client, "count", lambda *a, **kw: models.CountResult(count=original(*a, **kw).count + 1))
+    monkeypatch.setattr(
+        client,
+        "count",
+        lambda *a, **kw: models.CountResult(count=original(*a, **kw).count + 1),
+    )
 
-    with pytest.raises(ExportError, match="exported 25 points, but the collection has 26"):
+    with pytest.raises(
+        ExportError, match="exported 25 points, but the collection has 26"
+    ):
         export_collection(client, name, out, progress=False)
     assert not out.exists()
 
@@ -149,10 +189,15 @@ def test_collection_changed_during_the_export(client, tmp_path, monkeypatch, cap
     name = make_simple(client)
     out = tmp_path / "out.parquet"
     counts = iter([25, 30])  # 5 points were added during the export
-    monkeypatch.setattr(client, "count", lambda *a, **kw: models.CountResult(count=next(counts)))
+    monkeypatch.setattr(
+        client, "count", lambda *a, **kw: models.CountResult(count=next(counts))
+    )
 
     assert export_collection(client, name, out, progress=False).points == 25
-    assert "the collection changed during the export (25 points at the start, 30 now). Exported 25" in caplog.text
+    assert (
+        "the collection changed during the export (25 points at the start, 30 now). Exported 25"
+        in caplog.text
+    )
 
 
 @pytest.mark.skipif(not SERVER_URL, reason="needs a Qdrant server (QDRANT_URL)")
@@ -164,21 +209,41 @@ def test_interrupted_parallel_export_resumes(tmp_path, transport):
     config = ClientConfig(url=SERVER_URL, prefer_grpc="--rest" not in transport)
     client = config.make()
     name = unique("resume")
-    client.create_collection(name, vectors_config=models.VectorParams(size=16, distance=models.Distance.DOT))
+    client.create_collection(
+        name, vectors_config=models.VectorParams(size=16, distance=models.Distance.DOT)
+    )
     client.upload_collection(
-        name, vectors=[[float(i % 97)] * 16 for i in range(30_000)],
-        payload=({"i": i} for i in range(30_000)), ids=range(30_000), wait=True,
+        name,
+        vectors=[[float(i % 97)] * 16 for i in range(30_000)],
+        payload=({"i": i} for i in range(30_000)),
+        ids=range(30_000),
+        wait=True,
     )
     try:
         expected, out = tmp_path / "expected.parquet", tmp_path / "out.parquet"
         export_collection(client, name, expected, progress=False)
 
-        cli = [sys.executable, "-m", "qdrant_to_parquet", name, str(out), "--url", SERVER_URL, *transport]
+        cli = [
+            sys.executable,
+            "-m",
+            "qdrant_to_parquet",
+            name,
+            str(out),
+            "--url",
+            SERVER_URL,
+            *transport,
+        ]
         # One point per request, so the export is still running when it is interrupted.
-        proc = subprocess.Popen([*cli, "--workers", "4", "--batch-size", "1"], stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(
+            [*cli, "--workers", "4", "--batch-size", "1"],
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         directory = ranges.state_dir(out)
         while (ranges.saved_points(out) or 0) < 5_000:
-            assert proc.poll() is None, "the export finished before it could be interrupted"
+            assert proc.poll() is None, (
+                "the export finished before it could be interrupted"
+            )
             time.sleep(0.05)
         proc.send_signal(signal.SIGTERM)
         _, err = proc.communicate(timeout=60)
@@ -189,7 +254,9 @@ def test_interrupted_parallel_export_resumes(tmp_path, transport):
         plan = json.loads((directory / "plan.json").read_text())
         assert len(plan["ranges"]) > 4
 
-        result = subprocess.run([*cli, "--workers", "2"], capture_output=True, text=True, timeout=300)
+        result = subprocess.run(
+            [*cli, "--workers", "2"], capture_output=True, text=True, timeout=300
+        )
         assert result.returncode == 0, result.stderr
         assert "resuming an interrupted export" in result.stderr
         assert out.read_bytes() == expected.read_bytes()

@@ -38,17 +38,25 @@ def make_simple(client: QdrantClient, n: int = 25) -> str:
     """One unnamed 4-dim vector. Integer and UUID ids."""
     name = unique("simple")
     client.create_collection(
-        name, vectors_config=models.VectorParams(size=4, distance=models.Distance.EUCLID)
+        name,
+        vectors_config=models.VectorParams(size=4, distance=models.Distance.EUCLID),
     )
     points = [
         models.PointStruct(
             id=i,
             vector=[float(i), 1.0, 2.0, 3.0],
-            payload={"n": i, "even": i % 2 == 0, "title": f"doc {i}", "tags": ["a", str(i)]},
+            payload={
+                "n": i,
+                "even": i % 2 == 0,
+                "title": f"doc {i}",
+                "tags": ["a", str(i)],
+            },
         )
         for i in range(1, n)
     ]
-    points.append(models.PointStruct(id=UUID_ID, vector=[0.5, 0.5, 0.5, 0.5], payload=None))
+    points.append(
+        models.PointStruct(id=UUID_ID, vector=[0.5, 0.5, 0.5, 0.5], payload=None)
+    )
     client.upsert(name, points, wait=True)
     return name
 
@@ -87,7 +95,9 @@ def make_multi(client: QdrantClient) -> str:
                 vector={"text": [0.4, 0.5, 0.6]},
                 payload={"lang": "de"},
             ),
-            models.PointStruct(id=3, vector={"colbert": [[2.0, 3.0]]}, payload={"lang": "fr"}),
+            models.PointStruct(
+                id=3, vector={"colbert": [[2.0, 3.0]]}, payload={"lang": "fr"}
+            ),
         ],
         wait=True,
     )

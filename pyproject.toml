@@ -3,12 +3,32 @@ name = "qdrant-to-parquet"
 version = "0.1.0"
 description = "CLI tool to export a Qdrant collection to a Parquet file"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Qdrant Team", email = "info@qdrant.tech" }]
+keywords = ["qdrant", "parquet", "export", "vector-database", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Typing :: Typed",
+]
 requires-python = ">=3.11,<3.14"  # qdrant-client 1.19 cannot be imported on Python 3.14
 dependencies = [
     "pyarrow>=25.0.1",
     "qdrant-client>=1.19.1",
     "tqdm>=4.60",
 ]
+
+[project.urls]
+Homepage = "https://github.com/qdrant-labs/to-parquet"
+Repository = "https://github.com/qdrant-labs/to-parquet"
+Issues = "https://github.com/qdrant-labs/to-parquet/issues"
 
 [project.scripts]
 qdrant-to-parquet = "qdrant_to_parquet.cli:main"
