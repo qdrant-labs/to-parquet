@@ -3,8 +3,8 @@
 CLI tool to export a Qdrant collection to a Parquet file.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/export-dark.gif">
-  <img src="docs/export-light.gif" width="792" alt="The collection is split into ranges, workers export them in parallel and save chunks, an interrupted export resumes from the saved chunks, and the chunks are joined into out.parquet">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qdrant-labs/to-parquet/main/docs/export-dark.gif">
+  <img src="https://raw.githubusercontent.com/qdrant-labs/to-parquet/main/docs/export-light.gif" width="792" alt="The collection is split into ranges, workers export them in parallel and save chunks, an interrupted export resumes from the saved chunks, and the chunks are joined into out.parquet">
 </picture>
 
 - All vector types: unnamed, named, multi-vectors and sparse.
