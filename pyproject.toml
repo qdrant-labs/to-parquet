@@ -1,0 +1,30 @@
+[project]
+name = "qdrant-to-parquet"
+version = "0.1.0"
+description = "CLI tool to export a Qdrant collection to a Parquet file"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"  # qdrant-client 1.19 cannot be imported on Python 3.14
+dependencies = [
+    "pyarrow>=25.0.1",
+    "qdrant-client>=1.19.1",
+    "tqdm>=4.60",
+]
+
+[project.scripts]
+qdrant-to-parquet = "qdrant_to_parquet.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+# qdrant-client checks the server version in a background thread, so this warning (from a test
+# that connects to a closed port) can surface during a later test.
+filterwarnings = ["ignore:Failed to obtain server version"]
